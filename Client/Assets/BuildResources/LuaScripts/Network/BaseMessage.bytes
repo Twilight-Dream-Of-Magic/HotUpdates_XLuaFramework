@@ -1,0 +1,82 @@
+BaseMessage = ClassFactory(nil)
+
+-- 放到 BaseMessage 里
+function BaseMessage:add_message(message_name, request_id, ...)
+    -- 1) 第一次用就初始化映射表
+    if self._message_map == nil then
+        self._message_map = {}
+    end
+
+    self._message_map[message_name] = request_id
+
+    local keys = {...}
+    -- 生成 request 方法
+    self["requset_"..message_name] = function(self, ...)
+        local values = {...}
+        if #keys ~= #values then
+            LogModule.Error("arguments error", message_name)
+            return
+        end
+        local sended_data = {}
+        for i = 1, #keys do
+            sended_data[keys[i]] = values[i]
+        end
+        LuaSendMessage(request_id, sended_data)
+    end
+
+    -- 自动把 response_id 定为 request_id + 1
+    local response_id = request_id + 1
+
+    -- 使用 子类 response 方法
+    if type(self["response_"..message_name]) == "function" then
+        -- 注册 response 回调
+        MessageManager:register_response(response_id, function(raw_data)
+            local responsed_data = RapidJson.decode(raw_data)
+            if responsed_data.result_code ~= 0 then
+                LogModule.Error("Protocol result code:", responsed_data.result_code)
+                return
+            end
+            -- 回传给你的回调
+            self["response_"..message_name](self, responsed_data)
+        end)
+    else
+        LogModule.Error("Please register message callback!", message_name)
+    end
+end
+
+function BaseMessage:remove_message(message_name)
+    if not self._message_map or not self._message_map[message_name] then
+        LogModule.Error("Message not registered: " .. tostring(message_name))
+        return
+    end
+
+    local request_id  = self._message_map[message_name]
+    local response_id = request_id + 1
+
+    -- 1) 反注册 response 回调
+    MessageManager:unregister_response(response_id)
+
+    -- 2) 删除生成 request 方法 和 子类的 response 方法
+    self["requset_"..message_name] = nil
+    self["response_"..message_name] = nil
+
+    -- 3) 清除映射关系
+    self._message_map[message_name] = nil
+
+    -- 4) 如果 _message_map 里已经没有任何 key 了，
+    --    那么把它本身给清空，并做一次 finalize/销毁
+    if not next(self._message_map) then
+        -- 释放映射表
+        self._message_map = nil
+    end
+end
+
+function LuaSendMessage(message_id, send_data)
+    local json_string = RapidJson.encode(send_data)
+    LogModule.Info("<color=#9400D3>LuaSendMessage: >>>>>>>>>> : id = " ..message_id.. " : " ..json_string.. " </color>")
+
+    -- Call C# Manager
+    FrameworkManager.Net:SendMessage(message_id, json_string)
+end
+
+return BaseMessage
