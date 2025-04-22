@@ -1,0 +1,15 @@
+MessageTest = ClassFactory(BaseMessage)
+
+function MessageTest:constructor()
+	self:add_message("test_message", 1000, "id", "user", "password", "listTest")
+end
+
+function MessageTest:response_test_message(message)
+	LogModule.Warn(message)
+end
+
+function MessageTest:destructor()
+	self:remove_message("test_message")
+end
+
+return MessageTest

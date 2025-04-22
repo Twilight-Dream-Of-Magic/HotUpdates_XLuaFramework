@@ -1,0 +1,14 @@
+﻿
+
+<linker>
+
+	<assembly fullname="Assembly-CSharp">
+	    <type fullname="LuaBehaviour" preserve="all"/>
+		<type fullname="FrameworkConstant" preserve="all"/>
+		<type fullname="NetManager" preserve="all"/>
+		<type fullname="UnityExtension" preserve="all"/>
+		<type fullname="LuaGlobalsHotUpdate" preserve="all"/>
+		
+	</assembly>
+
+</linker>
