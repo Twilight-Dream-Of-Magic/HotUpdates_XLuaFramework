@@ -1,0 +1,68 @@
+local MessageManager = {}
+
+local message_model_list = {}
+local message_responses = {}
+
+-- Manual Add Model Name
+local message_name_list = 
+{
+	"MessageTest",
+}
+
+-- 注册所有回调与构造模型实例
+function MessageManager:initialize()
+	for key, value in pairs(message_name_list) do
+		MessageInstance = require("Network." ..value)
+		message_model_list[value] = MessageInstance.create_new_instance(nil)
+	end
+end
+
+--- 反注册所有回调与析构模型实例
+function MessageManager:finalize()
+    -- 调用模型析构并清空实例表
+    for key, instance in pairs(message_model_list) do
+        if type(instance) == "table" and type(instance.destructor) == "function" then
+            instance:destructor()
+        end
+        message_model_list[key] = nil
+    end
+    -- 清空回调表
+    for id in pairs(message_responses) do
+        message_responses[id] = nil
+    end
+end
+
+function MessageManager:get_message(key)
+	if not message_model_list[key] then
+		LogModule.Error("Scipts is exist:" ..key)
+	end
+	return message_model_list[key]
+end
+
+function MessageManager:register_response(message_id, message_response_function)
+	if message_responses[message_id] then
+		LogModule.Error("Message response function is already registered! with message response id:" .. tostring(message_id))
+		return
+	end
+	message_responses[message_id] = message_response_function
+end
+
+function MessageManager:unregister_response(message_id)
+	if message_responses[message_id] then
+		message_responses[message_id] = nil
+	else
+		LogModule.Error("Message response function is not registered! with message response id:" .. tostring(message_id))
+	end
+end
+
+-- Call from C# NetManager
+function LuaReceiveMessage(message_id, message)
+	LogModule.Info("<color=#A0522D>LuaReceiveMessage: <<<<<<<<<< : id = " ..tostring(message_id).. " : " ..message.. " </color>")
+	if type(message_responses[message_id]) == "function" then
+		message_responses[message_id](message)
+	else
+		LogModule.Error("Can not find message response function with id:" ..tostring(message_id).. "!")
+	end
+end
+
+return MessageManager
