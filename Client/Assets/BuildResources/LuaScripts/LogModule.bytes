@@ -1,0 +1,80 @@
+local LogModule = {}
+
+local function read_table(tab, tab_count)
+	-- 内部辅助函数：根据层级返回对应数量的缩进符
+	local function get_symbol(count)
+		local symbol = ""
+		for index = 1, count do
+			symbol = symbol .. "	"  -- 4 个空格为一层缩进
+		end
+		return symbol
+	end
+
+	local symbol = get_symbol(tab_count)
+	local lua_table_string = ""
+
+	for key, value in pairs(tab) do
+		if type(value) == "table" then
+			-- 遇到表就递归
+			lua_table_string = lua_table_string
+				.. symbol .. key .. " :\n"
+				.. read_table(value, tab_count + 1)
+				.. symbol .. "\n"
+		elseif type(value) == "userdata" then
+			lua_table_string = lua_table_string .. symbol .. key .. " = userdata,\n"
+		elseif type(value) == "function" then
+			lua_table_string = lua_table_string .. symbol .. key .. " = function,\n"
+		else
+			lua_table_string = lua_table_string .. symbol .. key .. " = " .. tostring(value) .. "\n"
+		end
+	end
+
+	return lua_table_string
+end
+
+local function get_log_string(...)
+	local log_string = ""
+	local prm = { ... }
+
+	for key, value in pairs(prm) do
+		if type(value) == "table" then
+			-- 如果是表，则调用上面的 read_table，并加上换行
+			log_string = log_string
+				.. "\n"
+				.. read_table(value, 1)
+				.. "\n"
+		elseif type(value) == "function" then
+			log_string = log_string .. value .. " = function,\n"
+		elseif type(value) == "userdata" then
+			log_string = log_string .. " = userdata,\n"
+		else
+			-- 其他类型直接 tostring
+			log_string = log_string .. tostring(value) .. " "
+		end
+	end
+
+	return log_string
+end
+
+function LogModule.Info(...)
+	if not CS.FrameworkConstant.AllowLogging then
+		return
+	end
+	CS.LuaLogging.Info(get_log_string(...))
+end
+
+function LogModule.Warn(...)
+	if not CS.FrameworkConstant.AllowLogging then
+		return
+	end
+	CS.LuaLogging.Warn(get_log_string(...))
+end
+
+function LogModule.Error(...)
+	if not CS.FrameworkConstant.AllowLogging then
+		return
+	end
+	CS.LuaLogging.Error(get_log_string(...))
+end
+
+return LogModule

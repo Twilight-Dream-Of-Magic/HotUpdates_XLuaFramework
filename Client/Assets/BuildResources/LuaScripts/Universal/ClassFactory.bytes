@@ -1,0 +1,151 @@
+--------------------------------------------------------------------------------
+-- UniversalClass.lua
+-- 为 XLua 提供单继承、构造/析构级联、类型判断等功能的万用类工厂
+--------------------------------------------------------------------------------
+function ClassFactory(base_class_table)
+	-- 捕获内置函数，避免环境或元表覆盖
+	local type_fn		   = type
+	local rawget_fn		 = rawget
+	local rawset_fn		 = rawset
+	local setmetatable_fn   = setmetatable
+	local getmetatable_fn   = getmetatable
+
+	--------------------------------------------------------------------
+	-- 0. 创建新的类表，并提供默认的构造函数与析构函数
+	--------------------------------------------------------------------
+	local class_table = {}
+	function class_table.constructor(self, ...) end
+	function class_table.destructor(self) end
+
+	--------------------------------------------------------------------
+	-- 1. 为“类对象”设置元表：支持 MyClass(...) 直接创建，以及静态成员继承
+	--------------------------------------------------------------------
+	local class_metatable = {
+		__call = function(the_class, ...)
+			return the_class:create_new_instance(...)
+		end
+	}
+	if base_class_table ~= nil and type_fn(base_class_table) ~= "table" then
+		error("CreateClass(...) 的第一个参数必须是类表或 nil，实参类型为 '" .. type_fn(base_class_table) .. "'")
+	end
+	if type_fn(base_class_table) == "table" then
+		-- 记录父类引用
+		class_table.super_class = base_class_table
+		class_metatable.__index = base_class_table
+	end
+	setmetatable_fn(class_table, class_metatable)
+
+	--------------------------------------------------------------------
+	-- 2. 为“实例对象”准备元表：
+    -- 实现子类+父类方法查找，并级联构造，并级联析构
+	--------------------------------------------------------------------
+    
+    local function invoke_constructors_recursively(instance, current_class, ...)
+        -- 先调用父类的 constructor
+        local super_class = rawget(current_class, "super_class")
+        if super_class ~= nil and type_fn(super_class) == "table" then
+            invoke_constructors_recursively(instance, super_class, ...)
+        end
+        -- 再调用当前类的 constructor
+        local constructor_function = rawget(current_class, "constructor")
+        if constructor_function ~= nil and type_fn(constructor_function) == "function" then
+            constructor_function(instance, ...)
+        end
+    end
+
+	local function invoke_destructors_recursively(instance, current_class)
+		if not current_class then
+			return
+		end
+		local destructor_function = rawget_fn(current_class, "destructor")
+		local super_class = rawget_fn(current_class, "super_class")
+		if destructor_function == nil and super_class == nil then
+			return
+		end
+		if type_fn(destructor_function) == "function" then
+			destructor_function(instance)
+		end
+		if type_fn(super_class) == "table" then
+			invoke_destructors_recursively(instance, super_class)
+		end
+	end
+
+	local instance_metatable = {
+		__index = function(instance, key)
+			-- 先尝试从子类方法中查找
+			local value = rawget_fn(class_table, key)
+			if value ~= nil then
+				return value
+			end
+			-- 再沿 super_class 链向上查找
+			local super_class = rawget_fn(class_table, "super_class")
+			while type_fn(super_class) == "table" do
+				value = rawget_fn(super_class, key)
+				if value ~= nil then
+					return value
+				end
+				super_class = rawget_fn(super_class, "super_class")
+			end
+			return nil
+		end,
+		__gc = function(instance)
+			if self == nil or self.invoke_destructor_recursively == nil then
+				return
+			end
+			invoke_destructors_recursively(instance, class_table)
+		end
+	}
+
+	--------------------------------------------------------------------
+	-- 3. 实例化：先递归父类 constructor，再调用当前构造
+	--------------------------------------------------------------------
+    --- @return table
+	function class_table.create_new_instance(...)
+		local instance = setmetatable_fn({}, instance_metatable)
+		-- 将类引用写入实例，便于后续 is_instance_of 判断
+		rawset_fn(instance, "__class", class_table)
+		invoke_constructors_recursively(instance, class_table, ...)
+		return instance
+	end
+
+	--------------------------------------------------------------------
+	-- 4. 判断对象是否为某类实例
+	--------------------------------------------------------------------
+    --- @return boolean
+	function class_table.is_instance_of(object_to_test, some_class)
+		-- 直接从实例表里拿 __class
+        local class_reference = rawget_fn(object_to_test, "__class")
+        -- 再看这个 class_ref 是否是 some_class 的子类
+        return type_fn(class_reference) == "table" and class_reference:is_subclass_of(some_class)
+	end
+
+    --------------------------------------------------------------------
+	-- 5. 判断继承关系
+	--------------------------------------------------------------------
+    --- @return boolean
+	function class_table:is_subclass_of(other_class)
+		local search_class = self
+		while search_class do
+			if search_class == other_class then
+				return true
+			end
+			search_class = rawget_fn(search_class, "super_class")
+		end
+		return false
+	end
+
+    --------------------------------------------------------------------
+    -- 6. 判断一个对象是否为“类对象”（而非实例）
+    --------------------------------------------------------------------
+    --- @return boolean
+    function class_table.is_class(object_to_test)
+        -- 直接用 getmetatable 来看它挂的元表是不是 class_metatable
+        return getmetatable_fn(object_to_test) == class_metatable
+    end
+
+	-- 别名
+	-- class_table.new = class_table.create_new_instance
+	return class_table
+end
+
+return ClassFactory
